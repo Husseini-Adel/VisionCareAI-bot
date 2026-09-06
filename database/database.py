@@ -10,12 +10,11 @@ def get_connection():
     return conn
 
 def init_db():
-    """إنشاء الجداول تلقائياً عند أول تشغيل إذا لم تكن موجودة."""
+    """إنشاء الجداول وعمل Migration آمن للأعمدة الجديدة"""
     conn = get_connection()
     try:
         cursor = conn.cursor()
         
-        # 1. جدول المستخدمين
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,7 +26,6 @@ def init_db():
         );
         """)
 
-        # 2. جدول سجل المحادثات
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS conversations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,7 +36,6 @@ def init_db():
         );
         """)
 
-        # 3. جدول الحجوزات
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS appointments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +49,6 @@ def init_db():
         );
         """)
 
-        # 4. جدول التحويلات البشرية
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS handoffs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,13 +56,27 @@ def init_db():
             reason TEXT NOT NULL,
             urgency TEXT NOT NULL,
             status TEXT DEFAULT 'pending',
+            staff_group_message_id INTEGER,
+            assigned_staff_id INTEGER,
+            assigned_staff_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             resolved_at TIMESTAMP
         );
         """)
 
+        # فحص وإضافة الأعمدة الجديدة إذا كانت القاعدة موجودة مسبقاً
+        cursor.execute("PRAGMA table_info(handoffs);")
+        columns = [col["name"] for col in cursor.fetchall()]
+        
+        if "staff_group_message_id" not in columns:
+            cursor.execute("ALTER TABLE handoffs ADD COLUMN staff_group_message_id INTEGER;")
+        if "assigned_staff_id" not in columns:
+            cursor.execute("ALTER TABLE handoffs ADD COLUMN assigned_staff_id INTEGER;")
+        if "assigned_staff_name" not in columns:
+            cursor.execute("ALTER TABLE handoffs ADD COLUMN assigned_staff_name TEXT;")
+
         conn.commit()
-        logger.info(f"Database initialized at '{config.DATABASE_PATH}'.")
+        logger.info(f"Database initialized and schema verified at '{config.DATABASE_PATH}'.")
     finally:
         conn.close()
 
@@ -143,18 +153,52 @@ def create_handoff(chat_id: int, reason: str, urgency: str) -> int:
     finally:
         conn.close()
 
-def is_user_in_handoff(chat_id: int) -> bool:
+def set_handoff_message_id(handoff_id: int, message_id: int):
+    """ربط رقم رسالة المجموعة بطلب التحويل"""
     conn = get_connection()
     try:
         cursor = conn.cursor()
         cursor.execute("""
-        SELECT id FROM handoffs
+        UPDATE handoffs
+        SET staff_group_message_id = ?
+        WHERE id = ?;
+        """, (message_id, handoff_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+def get_handoff_by_staff_message_id(message_id: int):
+    """جلب بيانات العميل والطلب عبر رسالة المجموعة التي تم الرد عليها"""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT * FROM handoffs
+        WHERE staff_group_message_id = ? AND status = 'pending'
+        ORDER BY id DESC LIMIT 1;
+        """, (message_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+def get_active_handoff_by_chat_id(chat_id: int):
+    """جلب الطلب النشط لعميل معين"""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT * FROM handoffs
         WHERE chat_id = ? AND status = 'pending'
         ORDER BY id DESC LIMIT 1;
         """, (chat_id,))
-        return cursor.fetchone() is not None
+        row = cursor.fetchone()
+        return dict(row) if row else None
     finally:
         conn.close()
+
+def is_user_in_handoff(chat_id: int) -> bool:
+    return get_active_handoff_by_chat_id(chat_id) is not None
 
 def release_user_handoff(chat_id: int):
     conn = get_connection()
@@ -165,6 +209,22 @@ def release_user_handoff(chat_id: int):
         SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP
         WHERE chat_id = ? AND status = 'pending';
         """, (chat_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+def resolve_handoff_by_id(handoff_id: int, staff_id: int = None, staff_name: str = None):
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+        UPDATE handoffs
+        SET status = 'resolved',
+            assigned_staff_id = ?,
+            assigned_staff_name = ?,
+            resolved_at = CURRENT_TIMESTAMP
+        WHERE id = ?;
+        """, (staff_id, staff_name, handoff_id))
         conn.commit()
     finally:
         conn.close()

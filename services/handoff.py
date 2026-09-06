@@ -1,7 +1,11 @@
 import asyncio
 import logging
 from telegram.error import TelegramError
-from database.database import create_handoff
+from database.database import (
+    create_handoff,
+    set_handoff_message_id,
+    get_active_handoff_by_chat_id
+)
 import config
 
 logger = logging.getLogger(__name__)
@@ -11,40 +15,44 @@ def set_bot_instance(app):
     global bot_app_instance
     bot_app_instance = app
 
-async def _send_staff_notification(alert_message: str):
-    """إرسال تنبيه إلى الموظف مع معالجة آمنة للأخطاء"""
+async def _notify_staff_group(handoff_id: int, alert_message: str):
+    """إرسال التنبيه إلى مجموعة الموظفين وحفظ معرّف الرسالة للرد عليها"""
+    if not bot_app_instance:
+        logger.error("bot_app_instance is not set.")
+        return
+
+    if not config.STAFF_GROUP_ID:
+        logger.warning("STAFF_GROUP_ID is not configured.")
+        return
+
     try:
-        await bot_app_instance.bot.send_message(
-            chat_id=config.STAFF_USER_ID,
+        sent_msg = await bot_app_instance.bot.send_message(
+            chat_id=config.STAFF_GROUP_ID,
             text=alert_message,
             parse_mode="Markdown"
         )
-        logger.info(f"Notification delivered to staff ID ({config.STAFF_USER_ID}).")
+        # حفظ رقم الرسالة للربط اللاحق بالـ Reply
+        set_handoff_message_id(handoff_id, sent_msg.message_id)
+        logger.info(f"Handoff #{handoff_id} sent to Staff Group. Message ID: {sent_msg.message_id}")
     except TelegramError as e:
-        logger.warning(
-            f"تعذر إرسال التنبيه إلى الموظف ({config.STAFF_USER_ID}): {e}. "
-            f"تأكد أن الموظف قام بالضغط على /start في بوت تيليجرام أولاً."
-        )
-    except Exception as e:
-        logger.error(f"Unexpected error in staff notification: {e}")
+        logger.error(f"فشل إرسال التنبيه إلى مجموعة الموظفين: {e}. تأكد أن البوت عضو ومشرف في المجموعة.")
 
 def transfer_to_human_staff(reason: str, urgency: str, chat_id: int, user_name: str, username: str) -> str:
-    """تسجيل التحويل في SQLite وإرسال إشعار للموظف."""
+    """استدعاء أداة التحويل وتسجيل الطلب في قاعدة البيانات"""
     handoff_id = create_handoff(chat_id, reason, urgency)
 
     client_link = f"tg://user?id={chat_id}" if not username or username == "لا يوجد" else f"https://t.me/{username}"
     alert_message = (
-        f"🚨 **تنبيه تحويل عميل (Human Handoff #{handoff_id})**\n"
+        f"🚨 **طلب تحويل عميل جديد (#{handoff_id})**\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"👤 **العميل:** [{user_name}]({client_link})\n"
-        f"🆔 **المعرف:** `{chat_id}`\n"
-        f"⚠️ **الأولوية:** {urgency}\n"
+        f"🆔 **معرّف العميل:** `{chat_id}`\n"
+        f"⚠️ **درجة الأولوية:** {urgency}\n"
         f"📌 **السبب:** {reason}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"يرجى الضغط على اسم العميل أعلاه وبدء متابعته."
+        f"💬 **للرد على هذا العميل:** اضغط مباشرة على خيار (Reply/رد) على هذه الرسالة واكتب ردك."
     )
 
-    if bot_app_instance and config.STAFF_USER_ID:
-        asyncio.create_task(_send_staff_notification(alert_message))
+    asyncio.create_task(_notify_staff_group(handoff_id, alert_message))
 
-    return "تم إشعار موظف خدمة العملاء بنجاح، وسيتابع معك الآن مباشرة."
+    return "تم إشعار موظف خدمة العملاء بنجاح وسيتابع معك الآن مباشرة."

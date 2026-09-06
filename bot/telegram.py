@@ -6,7 +6,12 @@ from telegram.ext import (
     filters
 )
 import config
-from bot.handlers import start_handler, release_bot_handler, message_handler
+from bot.handlers import (
+    start_handler,
+    release_bot_handler,
+    customer_message_handler,
+    staff_group_message_handler
+)
 from services.handoff import set_bot_instance
 
 def create_bot_application():
@@ -26,8 +31,24 @@ def create_bot_application():
 
     set_bot_instance(app)
 
+    # أوامر عامة
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("bot", release_bot_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+
+    # رسائل مجموعة الموظفين (فقط ردود الموظفين داخل المجموعة)
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS & filters.REPLY & filters.TEXT,
+            staff_group_message_handler
+        )
+    )
+
+    # رسائل العملاء في الخاص
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND,
+            customer_message_handler
+        )
+    )
 
     return app
