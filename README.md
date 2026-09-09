@@ -22,30 +22,38 @@ An interactive AI assistant built with Python and integrated with a Telegram bot
 
 ---
 
-🏗️ Project Architecture
+## 🏗️ Project Architecture
 
 The project is designed using a clean and scalable software architecture (Clean & Modular Architecture):
 
+```text
 visioncare-ai/
 │
 ├── ai/
-│   ├── gemini.py         # Gemini 3.6 Flash integration, memory management, and tool integration
-│   └── prompts.py        # Knowledge Base and system instructions
+│   ├── gemini.py
+│   └── prompts.py
 │
 ├── bot/
-│   ├── handlers.py       # Private message handlers and staff-group replies
-│   └── telegram.py       # Application setup and message routing
+│   ├── handlers.py
+│   └── telegram.py
 │
 ├── database/
-│   ├── database.py       # SQLite tables, operations, and automatic field migrations
-│   └── memory.py         # Interface for managing conversation history and session states
+│   ├── database.py
+│   └── memory.py
 │
 ├── services/
-│   ├── handoff.py        # Interactive communication bridge between customers and the support group
-│   └── booking.py        # Appointment registration and storage logic
+│   ├── handoff.py
+│   └── booking.py
 │
-├── config.example.py     # Example configuration and settings
-├── main.py               # Main entry point and application startup
-├── test_sqlite.py        # Database and customer-isolation testing script
-├── requirements.txt      # Required dependencies
-└── README.md
+├── config.example.py
+├── main.py
+├── test_sqlite.py
+├── requirements.txt
+└── README.md 
+---
+
+## 🚀 Setup & Usage
+
+```bash
+pip install -r requirements.txt
+python main.py
