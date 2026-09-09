@@ -49,8 +49,7 @@ visioncare-ai/
 ├── main.py
 ├── test_sqlite.py
 ├── requirements.txt
-└── README.md 
----
+└── README.md---
 
 ## 🚀 Setup & Usage
 
